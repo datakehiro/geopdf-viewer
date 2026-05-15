@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GeoPDF ビューア</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GeoPDF">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
   <style>
@@ -617,6 +622,39 @@
 
   function esc(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── PWA：Service Worker 登録 ──────────────────────────────────────
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+
+  // ── PWA：共有シートから受け取ったPDFを処理（iOS Share Target）────
+  if (location.search.includes('share=1')) {
+    history.replaceState({}, '', location.pathname);
+    (async () => {
+      try {
+        const cache = await caches.open('geopdf-share');
+        const res   = await cache.match('pending');
+        if (res) {
+          const filename = decodeURIComponent(res.headers.get('X-Filename') || 'shared.pdf');
+          const buf  = await res.arrayBuffer();
+          const file = new File([buf], filename, { type: 'application/pdf' });
+          await cache.delete('pending');
+          loadGeoPDF(file);
+        }
+      } catch (_) {}
+    })();
+  }
+
+  // ── PWA：ファイルハンドラー（Windows/Mac の Chrome/Edge でPDFを関連付け）
+  if ('launchQueue' in window) {
+    window.launchQueue.setConsumer(async params => {
+      for (const handle of params.files) {
+        const file = await handle.getFile();
+        if (file.name.toLowerCase().endsWith('.pdf')) loadGeoPDF(file);
+      }
+    });
   }
 </script>
 </body>
