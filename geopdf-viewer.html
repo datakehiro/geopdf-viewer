@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GeoPDF ビューア</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -378,7 +379,7 @@
       }
 
       card.setStatus('レンダリング中...');
-      const dataUrl = await renderPDFPage(buffer, (msg) => card.setStatus(msg));
+      const { url: dataUrl, jpegBytes } = await renderPDFPage(buffer, (msg) => card.setStatus(msg));
 
       const bounds = L.latLngBounds(
         [geo.minLat, geo.minLon],
@@ -389,7 +390,7 @@
 
       pdfCount++;
       updateCount();
-      card.setReady({ overlay, bounds, geo });
+      card.setReady({ overlay, bounds, geo, jpegBytes, name: file.name });
 
     } catch (err) {
       card.setError('読み込みエラー: ' + err.message);
@@ -418,27 +419,24 @@
   }
 
   // ── 画像取得：PDF内のJPEGを直接抽出（PDF.jsによるCanvas展開を回避）──
-  // QGISなどが出力するGeoPDFはページ全体が1枚のJPEGなので
-  // バイナリからSOI(FF D8)〜EOI(FF D9)を抜き出してBlobURLを返す。
-  // JPEGが見つからない場合のみPDF.jsにフォールバック。
   async function renderPDFPage(buffer, onProgress) {
     onProgress?.('画像を抽出中...');
 
-    // ── 方法1: 埋め込みJPEGを直接抽出（iOSでもメモリ安全）──
-    const jpegUrl = extractEmbeddedJPEG(buffer);
-    if (jpegUrl) {
+    // 方法1: 埋め込みJPEGを直接抽出（iOSでもメモリ安全）
+    const jpegBytes = extractEmbeddedJPEGBytes(buffer);
+    if (jpegBytes) {
       onProgress?.('画像を読み込み中...');
-      // 画像が正常にデコードできるか確認してから返す
+      const url = URL.createObjectURL(new Blob([jpegBytes], { type: 'image/jpeg' }));
       await new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = resolve;
         img.onerror = () => reject(new Error('JPEG decode failed'));
-        img.src = jpegUrl;
+        img.src = url;
       });
-      return jpegUrl;
+      return { url, jpegBytes };
     }
 
-    // ── 方法2: PDF.jsでレンダリング（ベクターPDF等へのフォールバック）──
+    // 方法2: PDF.jsでレンダリング（ベクターPDF等へのフォールバック）
     onProgress?.('レンダリング中...');
     const isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent);
     const MAX_PX = isMobile ? 1024 : 2048;
@@ -455,35 +453,58 @@
     onProgress?.(`レンダリング中… (${canvas.width}×${canvas.height}px)`);
 
     await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-    return canvas.toDataURL('image/jpeg', 0.85);
+    const url = canvas.toDataURL('image/jpeg', 0.85);
+    // canvas からは Blob を生成して jpegBytes も作る
+    const jpegBlobBytes = await new Promise(resolve => {
+      canvas.toBlob(b => b.arrayBuffer().then(ab => resolve(new Uint8Array(ab))), 'image/jpeg', 0.85);
+    });
+    return { url, jpegBytes: jpegBlobBytes };
   }
 
-  // PDFバイナリの先頭JPEGをBlobURLとして返す
-  function extractEmbeddedJPEG(buffer) {
+  // PDFバイナリの先頭JPEGをUint8Arrayとして返す
+  function extractEmbeddedJPEGBytes(buffer) {
     const bytes = new Uint8Array(buffer);
-
-    // SOI マーカー (FF D8) を探す
     let start = -1;
     for (let i = 0; i < bytes.length - 1; i++) {
-      if (bytes[i] === 0xFF && bytes[i + 1] === 0xD8) {
-        start = i;
-        break;
-      }
+      if (bytes[i] === 0xFF && bytes[i + 1] === 0xD8) { start = i; break; }
     }
     if (start === -1) return null;
-
-    // EOI マーカー (FF D9) を末尾から探す
     let end = -1;
     for (let i = bytes.length - 1; i > start + 1; i--) {
-      if (bytes[i - 1] === 0xFF && bytes[i] === 0xD9) {
-        end = i;
-        break;
-      }
+      if (bytes[i - 1] === 0xFF && bytes[i] === 0xD9) { end = i; break; }
     }
     if (end === -1) return null;
+    return bytes.slice(start, end + 1);
+  }
 
-    const jpeg = bytes.slice(start, end + 1);
-    return URL.createObjectURL(new Blob([jpeg], { type: 'image/jpeg' }));
+  // ── KMZ エクスポート ──────────────────────────────────────────────
+  // KMZ = KML + JPEG を ZIP 圧縮したもの。
+  // GoogleマップにドラッグするだけでGeoPDF画像をオーバーレイ表示できる。
+  async function exportKMZ(name, geo, jpegBytes) {
+    const baseName = name.replace(/\.pdf$/i, '');
+    const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <GroundOverlay>
+    <name>${esc(baseName)}</name>
+    <Icon><href>image.jpg</href></Icon>
+    <LatLonBox>
+      <north>${geo.maxLat}</north>
+      <south>${geo.minLat}</south>
+      <east>${geo.maxLon}</east>
+      <west>${geo.minLon}</west>
+    </LatLonBox>
+  </GroundOverlay>
+</kml>`;
+
+    const zip = new JSZip();
+    zip.file('doc.kml', kml);
+    zip.file('image.jpg', jpegBytes);
+
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = baseName + '.kmz';
+    a.click();
   }
 
   // ── カード UI ────────────────────────────────────────────────────
@@ -505,12 +526,13 @@
     return {
       setStatus(msg) { statusEl.textContent = msg; statusEl.className = 'pdf-status'; },
       setError(msg)  { statusEl.textContent = msg; statusEl.className = 'pdf-status error'; },
-      setReady({ overlay, bounds, geo }) {
+      setReady({ overlay, bounds, geo, jpegBytes, name }) {
         statusEl.remove();
         card.insertAdjacentHTML('beforeend', `
           <div class="pdf-actions">
             <button class="icon-btn active" data-role="vis">表示</button>
             <button class="icon-btn" data-role="fit">移動</button>
+            <button class="icon-btn" data-role="kmz">KMZ</button>
             <button class="icon-btn del" data-role="del">✕</button>
           </div>
           <div class="pdf-coords">
@@ -529,6 +551,10 @@
 
         card.querySelector('[data-role="fit"]').addEventListener('click', () =>
           map.fitBounds(bounds, { padding: [40, 40] })
+        );
+
+        card.querySelector('[data-role="kmz"]').addEventListener('click', () =>
+          exportKMZ(name, geo, jpegBytes)
         );
 
         card.querySelector('[data-role="del"]').addEventListener('click', () => {
