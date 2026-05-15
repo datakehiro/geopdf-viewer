@@ -232,6 +232,25 @@
     .leaflet-control-zoom { display: none; }  /* モバイルではピンチズームを使う */
     .leaflet-control-layers { border-radius: 8px !important; }
 
+    /* ── 現在地ボタン ── */
+    #locBtn { transition: background 0.15s; }
+    #locBtn.tracking { background: #065f46cc; color: #6ee7b7; border-color: #6ee7b7; }
+
+    /* ── 現在地マーカー（脈動するドット） ── */
+    .gps-dot {
+      width: 16px; height: 16px;
+      background: #3b82f6;
+      border: 3px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 0 0 0 rgba(59,130,246,0.5);
+      animation: gps-pulse 2s infinite;
+    }
+    @keyframes gps-pulse {
+      0%   { box-shadow: 0 0 0 0   rgba(59,130,246,0.5); }
+      70%  { box-shadow: 0 0 0 12px rgba(59,130,246,0); }
+      100% { box-shadow: 0 0 0 0   rgba(59,130,246,0); }
+    }
+
     /* ── デスクトップ時のレイアウト ── */
     @media (min-width: 768px) {
       body { flex-direction: row; }
@@ -270,6 +289,7 @@
 <!-- モバイル用ツールバー（地図の上に重ねる） -->
 <div id="toolbar">
   <button class="tool-btn" id="addBtn">＋ PDF</button>
+  <button class="tool-btn" id="locBtn">現在地</button>
   <button class="tool-btn" id="panelToggleBtn">一覧 ▲</button>
 </div>
 
@@ -623,6 +643,73 @@
   function esc(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
+
+  // ── 現在地表示 ────────────────────────────────────────────────────
+  let gpsMarker = null;
+  let gpsAccCircle = null;
+  let gpsWatchId = null;
+  const locBtn = document.getElementById('locBtn');
+
+  locBtn.addEventListener('click', () => {
+    if (gpsWatchId !== null) {
+      // 追跡中 → 停止
+      navigator.geolocation.clearWatch(gpsWatchId);
+      gpsWatchId = null;
+      if (gpsMarker) { map.removeLayer(gpsMarker); gpsMarker = null; }
+      if (gpsAccCircle) { map.removeLayer(gpsAccCircle); gpsAccCircle = null; }
+      locBtn.textContent = '現在地';
+      locBtn.classList.remove('tracking');
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      alert('このブラウザは位置情報に対応していません');
+      return;
+    }
+
+    locBtn.textContent = '取得中…';
+
+    gpsWatchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        const latlng = [lat, lng];
+
+        // マーカー生成（初回）or 移動
+        if (!gpsMarker) {
+          const icon = L.divIcon({
+            className: '',
+            html: '<div class="gps-dot"></div>',
+            iconSize: [16, 16],
+            iconAnchor: [8, 8],
+          });
+          gpsMarker = L.marker(latlng, { icon, zIndexOffset: 1000 }).addTo(map);
+          gpsAccCircle = L.circle(latlng, {
+            radius: accuracy,
+            color: '#3b82f6',
+            fillColor: '#3b82f6',
+            fillOpacity: 0.1,
+            weight: 1,
+          }).addTo(map);
+          map.setView(latlng, Math.max(map.getZoom(), 15));
+        } else {
+          gpsMarker.setLatLng(latlng);
+          gpsAccCircle.setLatLng(latlng);
+          gpsAccCircle.setRadius(accuracy);
+        }
+
+        locBtn.textContent = '現在地 ●';
+        locBtn.classList.add('tracking');
+      },
+      (err) => {
+        locBtn.textContent = '現在地';
+        locBtn.classList.remove('tracking');
+        gpsWatchId = null;
+        const msg = err.code === 1 ? '位置情報の許可が必要です' : '位置情報を取得できませんでした';
+        alert(msg);
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    );
+  });
 
   // ── PWA：Service Worker 登録 ──────────────────────────────────────
   if ('serviceWorker' in navigator) {
