@@ -295,7 +295,11 @@
     'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
 
   // ── Leaflet 地図 ──────────────────────────────────────────────────
-  const map = L.map('map', { zoomControl: true }).setView([36.412, 137.826], 14);
+  const map = L.map('map', {
+    zoomControl: true,
+    bounceAtZoomLimits: false,
+    minZoom: 2,
+  }).setView([36.412, 137.826], 14);
 
   const baseLayers = {
     '地理院標準': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
