@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#1e1e2e"/>
+  <!-- 地図のピン形状 -->
+  <path d="M256 80 C196 80 148 128 148 188 C148 268 256 420 256 420 C256 420 364 268 364 188 C364 128 316 80 256 80Z" fill="#6d28d9"/>
+  <circle cx="256" cy="188" r="48" fill="#e0e0f0"/>
+  <!-- PDF文字 -->
+  <text x="256" y="480" text-anchor="middle" font-family="sans-serif" font-size="72" font-weight="bold" fill="#a78bfa">PDF</text>
+</svg>

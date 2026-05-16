@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoPDF ビューア</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GeoPDF">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif;
+      background: #0f0f17;
+      color: #e0e0f0;
+      overflow: hidden;
+    }
+
+    /* ── 地図（全画面） ── */
+    #map {
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+    }
+
+    /* ── 上部ツールバー ── */
+    #toolbar {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 1000;
+      display: flex;
+      gap: 8px;
+    }
+
+    .tool-btn {
+      background: #1a1a2eee;
+      border: 1px solid #3a3a6a;
+      color: #e0e0f0;
+      padding: 10px 16px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: background 0.15s;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .tool-btn:active { background: #6d28d9cc; }
+
+    /* ── 下部パネル ── */
+    #panel {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      background: #1a1a2ef5;
+      border-top: 1px solid #2e2e5e;
+      border-radius: 16px 16px 0 0;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transform: translateY(calc(100% - 52px));
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      max-height: 75dvh;
+      display: flex;
+      flex-direction: column;
+    }
+    #panel.open {
+      transform: translateY(0);
+    }
+
+    /* パネルのハンドル */
+    #panelHandle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      cursor: pointer;
+      min-height: 52px;
+      -webkit-tap-highlight-color: transparent;
+      flex-shrink: 0;
+    }
+    #panelHandle::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      top: 8px;
+      width: 36px;
+      height: 4px;
+      background: #3a3a6a;
+      border-radius: 2px;
+    }
+
+    #panelTitle {
+      font-size: 13px;
+      font-weight: 600;
+      color: #a78bfa;
+    }
+
+    #panelCount {
+      font-size: 12px;
+      color: #4b4b7a;
+    }
+
+    /* パネルのコンテンツ */
+    #panelContent {
+      overflow-y: auto;
+      padding: 0 12px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* ── PDF カード ── */
+    .pdf-card {
+      background: #212140;
+      border: 1px solid #2e2e5e;
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .pdf-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pdf-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .pdf-name {
+      font-size: 12px;
+      font-weight: 500;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #c4c4e8;
+    }
+
+    .pdf-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .icon-btn {
+      background: #2e2e5e;
+      border: none;
+      color: #a0a0c8;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      min-height: 36px;
+      display: flex;
+      align-items: center;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.1s;
+    }
+    .icon-btn:active { background: #3a3a70; }
+    .icon-btn.active { background: #6d28d9; color: #f0e8ff; }
+    .icon-btn.del:active { background: #7f1d1d; color: #fca5a5; }
+
+    .pdf-coords {
+      font-size: 10px;
+      color: #4b4b7a;
+      font-feature-settings: 'tnum';
+    }
+
+    .pdf-opacity-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .pdf-opacity-row label { font-size: 11px; color: #4b4b7a; white-space: nowrap; }
+    .opacity-slider {
+      flex: 1;
+      accent-color: #7c3aed;
+    }
+    .opacity-val { font-size: 11px; color: #6b6b9a; width: 32px; text-align: right; }
+
+    .pdf-status {
+      font-size: 12px;
+      color: #818cf8;
+      padding: 4px 0;
+    }
+    .pdf-status.error { color: #f87171; white-space: pre-wrap; }
+
+    /* ── ドロップオーバーレイ ── */
+    #dropOverlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(109, 40, 217, 0.2);
+      border: 3px dashed #7c3aed;
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 600;
+      color: #a78bfa;
+      pointer-events: none;
+      backdrop-filter: blur(4px);
+    }
+    #dropOverlay.show { display: flex; }
+
+    /* ── Leaflet 調整 ── */
+    .leaflet-control-zoom { display: none; }  /* モバイルではピンチズームを使う */
+    .leaflet-control-layers { border-radius: 8px !important; }
+
+    /* ── 現在地ボタン ── */
+    #locBtn.tracking { background: #065f46cc !important; color: #6ee7b7; border-color: #6ee7b7; }
+
+    /* ── 記録セクション ── */
+    .rec-section {
+      background: #212140;
+      border: 1px solid #2e2e5e;
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .rec-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #a78bfa;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .rec-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #4b4b7a;
+      flex-shrink: 0;
+    }
+    .rec-dot.active {
+      background: #f87171;
+      animation: gps-pulse 1.2s infinite;
+    }
+    .rec-stats {
+      font-size: 11px;
+      color: #6b6b9a;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+    }
+    .rec-stat-val { color: #c4c4e8; font-weight: 600; font-feature-settings: 'tnum'; }
+    .rec-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .rec-btn {
+      flex: 1;
+      background: #2e2e5e;
+      border: none;
+      color: #a0a0c8;
+      padding: 8px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      min-height: 38px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .rec-btn:active { background: #3a3a70; }
+    .rec-btn.start  { background: #7f1d1d; color: #fca5a5; }
+    .rec-btn.stop   { background: #065f46; color: #6ee7b7; }
+    .rec-btn.export { background: #1e3a5f; color: #93c5fd; }
+    .rec-btn:disabled { opacity: 0.35; cursor: default; }
+    .wp-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+    .wp-item {
+      font-size: 11px;
+      color: #9090b8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .wp-num {
+      background: #f97316;
+      color: #fff;
+      border-radius: 50%;
+      width: 18px; height: 18px;
+      font-size: 10px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+
+    /* ── 現在地マーカー（脈動するドット） ── */
+    .gps-dot {
+      width: 16px; height: 16px;
+      background: #3b82f6;
+      border: 3px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 0 0 0 rgba(59,130,246,0.5);
+      animation: gps-pulse 2s infinite;
+    }
+    @keyframes gps-pulse {
+      0%   { box-shadow: 0 0 0 0   rgba(59,130,246,0.5); }
+      70%  { box-shadow: 0 0 0 12px rgba(59,130,246,0); }
+      100% { box-shadow: 0 0 0 0   rgba(59,130,246,0); }
+    }
+
+    /* ── デスクトップ時のレイアウト ── */
+    @media (min-width: 768px) {
+      body { flex-direction: row; }
+
+      #map { flex: 1; height: 100dvh; }
+
+      #toolbar { display: none; }
+
+      #panel {
+        position: relative;
+        transform: none !important;
+        width: 300px;
+        min-width: 300px;
+        max-height: 100dvh;
+        border-radius: 0;
+        border-top: none;
+        border-right: 1px solid #2e2e5e;
+        order: -1;
+        flex-direction: column;
+      }
+
+      #panelHandle {
+        cursor: default;
+        border-bottom: 1px solid #2e2e5e;
+      }
+      #panelHandle::before { display: none; }
+
+      #panelContent { padding: 12px 12px 24px; }
+
+      .leaflet-control-zoom { display: block; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- モバイル用ツールバー（地図の上に重ねる） -->
+<div id="toolbar">
+  <button class="tool-btn" id="addBtn">＋ PDF</button>
+  <button class="tool-btn" id="locBtn">現在地</button>
+  <button class="tool-btn" id="panelToggleBtn">一覧 ▲</button>
+</div>
+
+<!-- 地図 -->
+<div id="map"></div>
+
+<!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
+<div id="panel">
+  <div id="panelHandle" id="panelHandleInner">
+    <span id="panelTitle">GeoPDF ビューア</span>
+    <span id="panelCount">0 件</span>
+  </div>
+  <div id="panelContent">
+    <!-- PDF 追加ボタン（デスクトップ用） -->
+    <button class="tool-btn" id="addBtnDesktop" style="width:100%; justify-content:center;">
+      ＋ GeoPDF を追加
+    </button>
+    <div id="pdfList"></div>
+
+    <!-- トラック記録 -->
+    <div class="rec-section">
+      <div class="rec-title">
+        <span class="rec-dot" id="recDot"></span>
+        トラック記録
+      </div>
+      <div class="rec-stats">
+        <span>距離</span><span class="rec-stat-val" id="recDist">0.0 m</span>
+        <span>記録点数</span><span class="rec-stat-val" id="recPtCount">0</span>
+      </div>
+      <div class="rec-btns">
+        <button class="rec-btn start" id="recBtn">● 記録開始</button>
+        <button class="rec-btn" id="recClearBtn" disabled>クリア</button>
+      </div>
+    </div>
+
+    <!-- ポイント記録 -->
+    <div class="rec-section">
+      <div class="rec-title">
+        📍 ポイント記録
+      </div>
+      <div class="rec-btns">
+        <button class="rec-btn start" id="wpBtn">＋ 現在地にポイント追加</button>
+      </div>
+      <div class="wp-list" id="wpList"></div>
+      <div class="rec-btns" style="margin-top:4px">
+        <button class="rec-btn" id="wpClearBtn" disabled>クリア</button>
+      </div>
+    </div>
+
+    <!-- GPX出力 -->
+    <div class="rec-btns" style="padding: 0 2px">
+      <button class="rec-btn export" id="gpxBtn" disabled style="flex:1; min-height:42px">
+        GPXで保存（トラック＋ポイント）
+      </button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" multiple accept=".pdf" style="display:none">
+<div id="dropOverlay">GeoPDF をドロップ</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module">
+  import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs';
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
+
+  // ── Leaflet 地図 ──────────────────────────────────────────────────
+  const map = L.map('map', {
+    zoomControl: true,
+    bounceAtZoomLimits: false,
+    minZoom: 2,
+  }).setView([36.412, 137.826], 14);
+
+  const baseLayers = {
+    '地理院標準': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+      maxZoom: 18, maxNativeZoom: 18, attribution: '国土地理院',
+    }),
+    '地理院写真': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', {
+      maxZoom: 18, maxNativeZoom: 18, attribution: '国土地理院',
+    }),
+    'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 22, maxNativeZoom: 19, attribution: '© OpenStreetMap contributors',
+    }),
+  };
+  baseLayers['地理院標準'].addTo(map);
+  L.control.layers(baseLayers, {}, { position: 'topright' }).addTo(map);
+
+  // ── パネル開閉（モバイル） ────────────────────────────────────────
+  const panel = document.getElementById('panel');
+  const panelHandle = document.getElementById('panelHandle');
+  const panelToggleBtn = document.getElementById('panelToggleBtn');
+
+  function togglePanel() {
+    const isOpen = panel.classList.toggle('open');
+    panelToggleBtn.textContent = isOpen ? '一覧 ▼' : '一覧 ▲';
+  }
+  panelHandle.addEventListener('click', togglePanel);
+  panelToggleBtn.addEventListener('click', togglePanel);
+
+  // ── ファイル入力 ──────────────────────────────────────────────────
+  const fileInput = document.getElementById('fileInput');
+  const openPicker = () => fileInput.click();
+
+  document.getElementById('addBtn').addEventListener('click', openPicker);
+  document.getElementById('addBtnDesktop').addEventListener('click', openPicker);
+
+  fileInput.addEventListener('change', (e) => {
+    Array.from(e.target.files).forEach(loadGeoPDF);
+    e.target.value = '';
+  });
+
+  // ── ドラッグ＆ドロップ ───────────────────────────────────────────
+  const dropOverlay = document.getElementById('dropOverlay');
+  document.addEventListener('dragover', (e) => { e.preventDefault(); dropOverlay.classList.add('show'); });
+  document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) dropOverlay.classList.remove('show'); });
+  document.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropOverlay.classList.remove('show');
+    Array.from(e.dataTransfer.files)
+      .filter(f => f.name.toLowerCase().endsWith('.pdf'))
+      .forEach(loadGeoPDF);
+  });
+
+  // ── カラーパレット ────────────────────────────────────────────────
+  const COLORS = ['#818cf8','#34d399','#fb923c','#f472b6','#38bdf8','#a3e635','#fbbf24','#e879f9'];
+  let colorIdx = 0;
+  let pdfCount = 0;
+
+  function updateCount() {
+    document.getElementById('panelCount').textContent = pdfCount + ' 件';
+  }
+
+  // ── GeoPDF の読み込みメイン処理 ──────────────────────────────────
+  async function loadGeoPDF(file) {
+    const color = COLORS[colorIdx++ % COLORS.length];
+    const card = createCard(file.name, color);
+    panel.classList.add('open');
+    panelToggleBtn.textContent = '一覧 ▼';
+
+    try {
+      const buffer = await file.arrayBuffer();
+
+      card.setStatus('座標を解析中...');
+      const geo = extractGPTS(buffer);
+      if (!geo) {
+        card.setError('位置情報（GPTS）が見つかりません。\nGeoPDF 形式ではない可能性があります。');
+        return;
+      }
+
+      card.setStatus('レンダリング中...');
+      const { url: dataUrl, jpegBytes } = await renderPDFPage(buffer, (msg) => card.setStatus(msg));
+
+      const bounds = L.latLngBounds(
+        [geo.minLat, geo.minLon],
+        [geo.maxLat, geo.maxLon]
+      );
+      const overlay = L.imageOverlay(dataUrl, bounds, { opacity: 0.75 }).addTo(map);
+      map.fitBounds(bounds, { padding: [40, 40] });
+
+      pdfCount++;
+      updateCount();
+      card.setReady({ overlay, bounds, geo, jpegBytes, name: file.name });
+
+    } catch (err) {
+      card.setError('読み込みエラー: ' + err.message);
+      console.error(err);
+    }
+  }
+
+  // ── GPTS 抽出 ────────────────────────────────────────────────────
+  function extractGPTS(buffer) {
+    const text = new TextDecoder('latin1').decode(new Uint8Array(buffer));
+    const match = text.match(/\/GPTS\s*\[([^\]]+)\]/);
+    if (!match) return null;
+
+    const vals = match[1].trim().split(/\s+/).map(Number);
+    if (vals.length < 8 || vals.some(isNaN)) return null;
+
+    const lats = vals.filter((_, i) => i % 2 === 0);
+    const lons = vals.filter((_, i) => i % 2 === 1);
+
+    return {
+      minLat: Math.min(...lats), maxLat: Math.max(...lats),
+      minLon: Math.min(...lons), maxLon: Math.max(...lons),
+      centerLat: (Math.min(...lats) + Math.max(...lats)) / 2,
+      centerLon: (Math.min(...lons) + Math.max(...lons)) / 2,
+    };
+  }
+
+  // ── 画像取得 ──────────────────────────────────────────────────────
+  // PC  → PDF.js でフル描画（ラスター＋ベクターすべて反映）
+  // iOS → 組み込みJPEGを直接抽出（メモリ安全。ベクター地物が別レイヤーの
+  //        PDFでは地物が欠落する場合があります）
+  async function renderPDFPage(buffer, onProgress) {
+    const isMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    if (isMobile) {
+      return renderMobile(buffer, onProgress);
+    } else {
+      return renderDesktop(buffer, onProgress);
+    }
+  }
+
+  // PC：PDF.jsでレンダリング（ベクター地物も含めて正確に描画）
+  async function renderDesktop(buffer, onProgress) {
+    onProgress?.('レンダリング中...');
+    const MAX_PX = 2048;
+
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+    const page = await pdf.getPage(1);
+    const vp0  = page.getViewport({ scale: 1.0 });
+    const scale = Math.min(MAX_PX / vp0.width, MAX_PX / vp0.height);
+    const viewport = page.getViewport({ scale });
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
+    onProgress?.(`レンダリング中… (${canvas.width}×${canvas.height}px)`);
+
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    const url = canvas.toDataURL('image/jpeg', 0.88);
+    const jpegBytes = await new Promise(resolve =>
+      canvas.toBlob(b => b.arrayBuffer().then(ab => resolve(new Uint8Array(ab))), 'image/jpeg', 0.88)
+    );
+    return { url, jpegBytes };
+  }
+
+  // iOS：組み込みJPEGを直接取り出す（PDF.jsのメモリ問題を回避）
+  async function renderMobile(buffer, onProgress) {
+    onProgress?.('画像を抽出中...');
+    const jpegBytes = extractEmbeddedJPEGBytes(buffer);
+
+    if (jpegBytes) {
+      const url = URL.createObjectURL(new Blob([jpegBytes], { type: 'image/jpeg' }));
+      await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = resolve;
+        img.onerror = () => reject(new Error('JPEG decode failed'));
+        img.src = url;
+      });
+      return { url, jpegBytes };
+    }
+
+    // JPEGが見つからない場合はPDF.jsで低解像度フォールバック
+    onProgress?.('レンダリング中（低解像度）...');
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+    const page = await pdf.getPage(1);
+    const vp0  = page.getViewport({ scale: 1.0 });
+    const scale = Math.min(768 / vp0.width, 768 / vp0.height);
+    const viewport = page.getViewport({ scale });
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    const url = canvas.toDataURL('image/jpeg', 0.85);
+    const jpegBytes2 = await new Promise(resolve =>
+      canvas.toBlob(b => b.arrayBuffer().then(ab => resolve(new Uint8Array(ab))), 'image/jpeg', 0.85)
+    );
+    return { url, jpegBytes: jpegBytes2 };
+  }
+
+  // PDFバイナリの先頭JPEGをUint8Arrayとして返す
+  function extractEmbeddedJPEGBytes(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let start = -1;
+    for (let i = 0; i < bytes.length - 1; i++) {
+      if (bytes[i] === 0xFF && bytes[i + 1] === 0xD8) { start = i; break; }
+    }
+    if (start === -1) return null;
+    let end = -1;
+    for (let i = bytes.length - 1; i > start + 1; i--) {
+      if (bytes[i - 1] === 0xFF && bytes[i] === 0xD9) { end = i; break; }
+    }
+    if (end === -1) return null;
+    return bytes.slice(start, end + 1);
+  }
+
+  // ── KMZ エクスポート ──────────────────────────────────────────────
+  // KMZ = KML + JPEG を ZIP 圧縮したもの。
+  // GoogleマップにドラッグするだけでGeoPDF画像をオーバーレイ表示できる。
+  async function exportKMZ(name, geo, jpegBytes) {
+    const baseName = name.replace(/\.pdf$/i, '');
+    const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <GroundOverlay>
+    <name>${esc(baseName)}</name>
+    <Icon><href>image.jpg</href></Icon>
+    <LatLonBox>
+      <north>${geo.maxLat}</north>
+      <south>${geo.minLat}</south>
+      <east>${geo.maxLon}</east>
+      <west>${geo.minLon}</west>
+    </LatLonBox>
+  </GroundOverlay>
+</kml>`;
+
+    const zip = new JSZip();
+    zip.file('doc.kml', kml);
+    zip.file('image.jpg', jpegBytes);
+
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = baseName + '.kmz';
+    a.click();
+  }
+
+  // ── カード UI ────────────────────────────────────────────────────
+  function createCard(name, color) {
+    const list = document.getElementById('pdfList');
+    const card = document.createElement('div');
+    card.className = 'pdf-card';
+    card.innerHTML = `
+      <div class="pdf-card-header">
+        <span class="pdf-dot" style="background:${color}"></span>
+        <span class="pdf-name" title="${esc(name)}">${esc(name)}</span>
+      </div>
+      <span class="pdf-status">読み込み中...</span>
+    `;
+    list.appendChild(card);
+
+    const statusEl = card.querySelector('.pdf-status');
+
+    return {
+      setStatus(msg) { statusEl.textContent = msg; statusEl.className = 'pdf-status'; },
+      setError(msg)  { statusEl.textContent = msg; statusEl.className = 'pdf-status error'; },
+      setReady({ overlay, bounds, geo, jpegBytes, name }) {
+        statusEl.remove();
+        card.insertAdjacentHTML('beforeend', `
+          <div class="pdf-actions">
+            <button class="icon-btn active" data-role="vis">表示</button>
+            <button class="icon-btn" data-role="fit">移動</button>
+            <button class="icon-btn" data-role="kmz">KMZ</button>
+            <button class="icon-btn del" data-role="del">✕</button>
+          </div>
+          <div class="pdf-coords">
+            ${geo.centerLat.toFixed(5)}°N, ${geo.centerLon.toFixed(5)}°E
+          </div>
+          <div class="pdf-opacity-row">
+            <label>透過</label>
+            <input type="range" class="opacity-slider" min="0" max="100" value="75">
+            <span class="opacity-val">75%</span>
+          </div>
+        `);
+
+        const visBtn = card.querySelector('[data-role="vis"]');
+        const slider = card.querySelector('.opacity-slider');
+        const opVal  = card.querySelector('.opacity-val');
+
+        card.querySelector('[data-role="fit"]').addEventListener('click', () =>
+          map.fitBounds(bounds, { padding: [40, 40] })
+        );
+
+        card.querySelector('[data-role="kmz"]').addEventListener('click', () =>
+          exportKMZ(name, geo, jpegBytes)
+        );
+
+        card.querySelector('[data-role="del"]').addEventListener('click', () => {
+          map.removeLayer(overlay);
+          card.remove();
+          pdfCount--;
+          updateCount();
+        });
+
+        visBtn.addEventListener('click', () => {
+          if (map.hasLayer(overlay)) {
+            map.removeLayer(overlay);
+            visBtn.textContent = '非表示';
+            visBtn.classList.remove('active');
+          } else {
+            overlay.addTo(map);
+            visBtn.textContent = '表示';
+            visBtn.classList.add('active');
+          }
+        });
+
+        slider.addEventListener('input', () => {
+          const v = parseInt(slider.value);
+          overlay.setOpacity(v / 100);
+          opVal.textContent = v + '%';
+        });
+      }
+    };
+  }
+
+  function esc(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── トラック・ポイント記録 ────────────────────────────────────────
+  let recWatchId   = null;
+  let trackPoints  = [];
+  let waypoints    = [];
+  let trackLine    = null;
+  let wpMarkers    = [];
+  let recStartTime = null;
+
+  const recBtn      = document.getElementById('recBtn');
+  const wpBtn       = document.getElementById('wpBtn');
+  const gpxBtn      = document.getElementById('gpxBtn');
+  const recClearBtn = document.getElementById('recClearBtn');
+  const wpClearBtn  = document.getElementById('wpClearBtn');
+  const recDot      = document.getElementById('recDot');
+  const recDist     = document.getElementById('recDist');
+  const recPtCount  = document.getElementById('recPtCount');
+  const wpList      = document.getElementById('wpList');
+
+  function haversine(a, b) {
+    const R = 6371000, r = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+    const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLon/2)**2;
+    return R * 2 * Math.asin(Math.sqrt(s));
+  }
+
+  function updateTrackStats() {
+    let d = 0;
+    for (let i = 1; i < trackPoints.length; i++) d += haversine(trackPoints[i-1], trackPoints[i]);
+    recDist.textContent = d >= 1000 ? (d/1000).toFixed(2)+' km' : Math.round(d)+' m';
+    recPtCount.textContent = trackPoints.length;
+    gpxBtn.disabled = trackPoints.length === 0 && waypoints.length === 0;
+  }
+
+  // ── トラック記録開始/停止 ──
+  recBtn.addEventListener('click', () => {
+    if (recWatchId !== null) {
+      navigator.geolocation.clearWatch(recWatchId);
+      recWatchId = null;
+      recBtn.textContent = '● 記録開始';
+      recBtn.className = 'rec-btn start';
+      recDot.classList.remove('active');
+    } else {
+      if (!navigator.geolocation) { alert('位置情報に対応していません'); return; }
+      recStartTime = new Date();
+      recBtn.textContent = '■ 記録停止';
+      recBtn.className = 'rec-btn stop';
+      recDot.classList.add('active');
+
+      recWatchId = navigator.geolocation.watchPosition(pos => {
+        const pt = { lat: pos.coords.latitude, lon: pos.coords.longitude, time: new Date() };
+        trackPoints.push(pt);
+        const latlngs = trackPoints.map(p => [p.lat, p.lon]);
+        if (!trackLine) {
+          trackLine = L.polyline(latlngs, { color: '#f97316', weight: 3, opacity: 0.85 }).addTo(map);
+        } else {
+          trackLine.setLatLngs(latlngs);
+        }
+        updateTrackStats();
+        recClearBtn.disabled = false;
+      }, () => {}, { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 });
+    }
+  });
+
+  // トラッククリア
+  recClearBtn.addEventListener('click', () => {
+    if (!confirm('トラックをクリアしますか？')) return;
+    trackPoints = [];
+    if (trackLine) { map.removeLayer(trackLine); trackLine = null; }
+    updateTrackStats();
+    recClearBtn.disabled = true;
+  });
+
+  // ── ポイント追加（トラック記録と独立） ──
+  function addWaypoint(lat, lon) {
+    const num  = waypoints.length + 1;
+    const name = prompt('ポイント名', 'ポイント ' + num) ?? ('ポイント ' + num);
+    const wp   = { lat, lon, name: name || 'ポイント ' + num, time: new Date() };
+    waypoints.push(wp);
+
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="background:#f97316;color:#fff;border-radius:50%;width:22px;height:22px;
+             display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;
+             border:2px solid #fff;box-shadow:0 1px 4px #0005">${num}</div>`,
+      iconSize: [22,22], iconAnchor: [11,11],
+    });
+    wpMarkers.push(L.marker([lat, lon], { icon }).bindPopup(wp.name).addTo(map));
+
+    const item = document.createElement('div');
+    item.className = 'wp-item';
+    item.innerHTML = `<span class="wp-num">${num}</span>${esc(wp.name)}
+      <span style="margin-left:auto;color:#4b4b7a;font-size:10px">${lat.toFixed(5)},${lon.toFixed(5)}</span>`;
+    wpList.appendChild(item);
+    wpClearBtn.disabled = false;
+    gpxBtn.disabled = false;
+  }
+
+  wpBtn.addEventListener('click', () => {
+    // トラック記録中なら最新点を使用、そうでなければ現在地を取得
+    if (trackPoints.length > 0) {
+      const last = trackPoints[trackPoints.length - 1];
+      addWaypoint(last.lat, last.lon);
+    } else {
+      if (!navigator.geolocation) { alert('位置情報に対応していません'); return; }
+      wpBtn.textContent = '取得中...';
+      wpBtn.disabled = true;
+      navigator.geolocation.getCurrentPosition(pos => {
+        wpBtn.textContent = '＋ 現在地にポイント追加';
+        wpBtn.disabled = false;
+        addWaypoint(pos.coords.latitude, pos.coords.longitude);
+      }, () => {
+        wpBtn.textContent = '＋ 現在地にポイント追加';
+        wpBtn.disabled = false;
+        alert('位置情報を取得できませんでした');
+      }, { enableHighAccuracy: true, timeout: 15000 });
+    }
+  });
+
+  // ポイントクリア
+  wpClearBtn.addEventListener('click', () => {
+    if (!confirm('ポイントをクリアしますか？')) return;
+    waypoints = [];
+    wpMarkers.forEach(m => map.removeLayer(m)); wpMarkers = [];
+    wpList.innerHTML = '';
+    wpClearBtn.disabled = true;
+    gpxBtn.disabled = trackPoints.length === 0;
+  });
+
+  // ── GPX出力 ──
+  gpxBtn.addEventListener('click', () => {
+    const now = new Date(), iso = t => t.toISOString();
+    let gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="GeoPDF Viewer" xmlns="http://www.topografix.com/GPX/1/1">\n`;
+    waypoints.forEach(w => {
+      gpx += `  <wpt lat="${w.lat}" lon="${w.lon}"><name>${esc(w.name)}</name><time>${iso(w.time)}</time></wpt>\n`;
+    });
+    if (trackPoints.length) {
+      gpx += `  <trk><name>Track ${iso(recStartTime??now)}</name><trkseg>\n`;
+      trackPoints.forEach(p => { gpx += `    <trkpt lat="${p.lat}" lon="${p.lon}"><time>${iso(p.time)}</time></trkpt>\n`; });
+      gpx += `  </trkseg></trk>\n`;
+    }
+    gpx += `</gpx>`;
+    const filename = `track_${now.toISOString().slice(0,10)}.gpx`;
+    const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+    const url = URL.createObjectURL(blob);
+    // iOSはwindow.openでシェアシートが出る。デスクトップはdownloadリンク
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+      window.open(url, '_blank');
+    } else {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  });
+
+  // ── 現在地表示 ────────────────────────────────────────────────────
+  let gpsMarker = null;
+  let gpsAccCircle = null;
+  let gpsWatchId = null;
+  const locBtn = document.getElementById('locBtn');
+
+  locBtn.addEventListener('click', () => {
+    if (gpsWatchId !== null) {
+      // 追跡中 → 停止
+      navigator.geolocation.clearWatch(gpsWatchId);
+      gpsWatchId = null;
+      if (gpsMarker) { map.removeLayer(gpsMarker); gpsMarker = null; }
+      if (gpsAccCircle) { map.removeLayer(gpsAccCircle); gpsAccCircle = null; }
+      locBtn.textContent = '現在地';
+      locBtn.classList.remove('tracking');
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      alert('このブラウザは位置情報に対応していません');
+      return;
+    }
+
+    locBtn.textContent = '取得中…';
+
+    gpsWatchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+        const latlng = [lat, lng];
+
+        // マーカー生成（初回）or 移動
+        if (!gpsMarker) {
+          const icon = L.divIcon({
+            className: '',
+            html: '<div class="gps-dot"></div>',
+            iconSize: [16, 16],
+            iconAnchor: [8, 8],
+          });
+          gpsMarker = L.marker(latlng, { icon, zIndexOffset: 1000 }).addTo(map);
+          gpsAccCircle = L.circle(latlng, {
+            radius: accuracy,
+            color: '#3b82f6',
+            fillColor: '#3b82f6',
+            fillOpacity: 0.1,
+            weight: 1,
+          }).addTo(map);
+          map.setView(latlng, Math.max(map.getZoom(), 15));
+        } else {
+          gpsMarker.setLatLng(latlng);
+          gpsAccCircle.setLatLng(latlng);
+          gpsAccCircle.setRadius(accuracy);
+        }
+
+        locBtn.textContent = '現在地 ●';
+        locBtn.classList.add('tracking');
+      },
+      (err) => {
+        locBtn.textContent = '現在地';
+        locBtn.classList.remove('tracking');
+        gpsWatchId = null;
+        const msg = err.code === 1 ? '位置情報の許可が必要です' : '位置情報を取得できませんでした';
+        alert(msg);
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    );
+  });
+
+  // ── PWA：Service Worker 登録 ──────────────────────────────────────
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+
+  // ── PWA：共有シートから受け取ったPDFを処理（iOS Share Target）────
+  if (location.search.includes('share=1')) {
+    history.replaceState({}, '', location.pathname);
+    (async () => {
+      try {
+        const cache = await caches.open('geopdf-share');
+        const res   = await cache.match('pending');
+        if (res) {
+          const filename = decodeURIComponent(res.headers.get('X-Filename') || 'shared.pdf');
+          const buf  = await res.arrayBuffer();
+          const file = new File([buf], filename, { type: 'application/pdf' });
+          await cache.delete('pending');
+          loadGeoPDF(file);
+        }
+      } catch (_) {}
+    })();
+  }
+
+  // ── PWA：ファイルハンドラー（Windows/Mac の Chrome/Edge でPDFを関連付け）
+  if ('launchQueue' in window) {
+    window.launchQueue.setConsumer(async params => {
+      for (const handle of params.files) {
+        const file = await handle.getFile();
+        if (file.name.toLowerCase().endsWith('.pdf')) loadGeoPDF(file);
+      }
+    });
+  }
+</script>
+</body>
+</html>
