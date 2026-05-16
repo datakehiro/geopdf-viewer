@@ -909,7 +909,7 @@
   });
 
   // ── GPX出力 ──
-  gpxBtn.addEventListener('click', () => {
+  gpxBtn.addEventListener('click', async () => {
     const now = new Date(), iso = t => t.toISOString();
     let gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="GeoPDF Viewer" xmlns="http://www.topografix.com/GPX/1/1">\n`;
     waypoints.forEach(w => {
@@ -923,19 +923,23 @@
     gpx += `</gpx>`;
     const filename = `track_${now.toISOString().slice(0,10)}.gpx`;
     const blob = new Blob([gpx], { type: 'application/gpx+xml' });
-    const url = URL.createObjectURL(blob);
-    // iOSはwindow.openでシェアシートが出る。デスクトップはdownloadリンク
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (isMobile) {
-      window.open(url, '_blank');
-    } else {
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+    // Web Share API が使えればネイティブ共有シートで開く（iOS対応）
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([blob], filename, { type: blob.type })] })) {
+      try {
+        await navigator.share({ files: [new File([blob], filename, { type: blob.type })], title: filename });
+        return;
+      } catch (e) {
+        if (e.name === 'AbortError') return; // ユーザーがキャンセル
+      }
     }
+    // フォールバック：ダウンロードリンク
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   });
 
