@@ -993,6 +993,7 @@
           gpsMarker.setLatLng(latlng);
           gpsAccCircle.setLatLng(latlng);
           gpsAccCircle.setRadius(accuracy);
+          map.panTo(latlng);
         }
 
         locBtn.classList.remove('locating');
