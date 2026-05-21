@@ -414,7 +414,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.12</span>
+    <span id="panelTitle">GeoPDF ビューア v1.13</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -934,27 +934,51 @@
   });
 
   // ── ポイント追加（トラック記録と独立） ──
-  function addWaypoint(lat, lon, savedName = null, savedTime = null) {
-    const num  = waypoints.length + 1;
-    const name = savedName !== null ? savedName
-      : (prompt('ポイント名', 'ポイント ' + num) ?? ('ポイント ' + num)) || ('ポイント ' + num);
-    const wp   = { lat, lon, name, time: savedTime ?? new Date() };
-    waypoints.push(wp);
-
-    const icon = L.divIcon({
+  function makeWpIcon(num) {
+    return L.divIcon({
       className: '',
       html: `<div style="background:#f97316;color:#fff;border-radius:50%;width:22px;height:22px;
              display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;
              border:2px solid #fff;box-shadow:0 1px 4px #0005">${num}</div>`,
       iconSize: [22,22], iconAnchor: [11,11],
     });
-    wpMarkers.push(L.marker([lat, lon], { icon }).bindPopup(wp.name).addTo(map));
+  }
 
-    const item = document.createElement('div');
-    item.className = 'wp-item';
-    item.innerHTML = `<span class="wp-num">${num}</span>${esc(wp.name)}
-      <span style="margin-left:auto;color:#4b4b7a;font-size:10px">${lat.toFixed(5)},${lon.toFixed(5)}</span>`;
-    wpList.appendChild(item);
+  function renderWpList() {
+    wpList.innerHTML = '';
+    waypoints.forEach((wp, i) => {
+      const item = document.createElement('div');
+      item.className = 'wp-item';
+      item.innerHTML = `
+        <span class="wp-num">${i + 1}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(wp.name)}</span>
+        <span style="color:#4b4b7a;font-size:10px;white-space:nowrap">${wp.lat.toFixed(5)},${wp.lon.toFixed(5)}</span>
+        <button class="icon-btn del" style="margin-left:4px;padding:2px 7px;min-height:24px;font-size:11px;flex-shrink:0">✕</button>
+      `;
+      item.querySelector('button').addEventListener('click', () => deleteWaypoint(i));
+      wpList.appendChild(item);
+    });
+  }
+
+  function deleteWaypoint(idx) {
+    map.removeLayer(wpMarkers[idx]);
+    waypoints.splice(idx, 1);
+    wpMarkers.splice(idx, 1);
+    wpMarkers.forEach((m, i) => m.setIcon(makeWpIcon(i + 1)));
+    renderWpList();
+    wpClearBtn.disabled = waypoints.length === 0;
+    gpxBtn.disabled = trackPoints.length === 0 && waypoints.length === 0;
+    saveWaypoints();
+  }
+
+  function addWaypoint(lat, lon, savedName = null, savedTime = null) {
+    const num  = waypoints.length + 1;
+    const name = savedName !== null ? savedName
+      : (prompt('ポイント名', 'ポイント ' + num) ?? ('ポイント ' + num)) || ('ポイント ' + num);
+    const wp   = { lat, lon, name, time: savedTime ?? new Date() };
+    waypoints.push(wp);
+    wpMarkers.push(L.marker([lat, lon], { icon: makeWpIcon(num) }).bindPopup(wp.name).addTo(map));
+    renderWpList();
     wpClearBtn.disabled = false;
     gpxBtn.disabled = false;
     if (savedName === null) saveWaypoints();
