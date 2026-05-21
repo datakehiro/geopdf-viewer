@@ -414,7 +414,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.13</span>
+    <span id="panelTitle">GeoPDF ビューア v1.14</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -436,8 +436,9 @@
       </div>
       <div class="rec-btns">
         <button class="rec-btn start" id="recBtn">● 記録開始</button>
-        <button class="rec-btn" id="recClearBtn" disabled>クリア</button>
+        <button class="rec-btn" id="recClearBtn" disabled>破棄</button>
       </div>
+      <div class="wp-list" id="trackList"></div>
     </div>
 
     <!-- ポイント記録（リスト表示のみ。追加はツールバーの📍ボタン） -->
@@ -581,10 +582,14 @@
   }
   function saveTracks() {
     try {
-      localStorage.setItem('geopdf-track', JSON.stringify({
-        points: trackPoints.map(p => ({ lat: p.lat, lon: p.lon, time: p.time.toISOString() })),
-        startTime: recStartTime?.toISOString() ?? null,
-      }));
+      localStorage.setItem('geopdf-track', JSON.stringify(
+        tracks.map(t => ({
+          id: t.id,
+          points: t.points.map(p => ({ lat: p.lat, lon: p.lon, time: p.time.toISOString() })),
+          startTime: t.startTime.toISOString(),
+          endTime: t.endTime ? t.endTime.toISOString() : null,
+        }))
+      ));
     } catch(_) {}
   }
 
@@ -861,11 +866,13 @@
 
   // ── トラック・ポイント記録 ────────────────────────────────────────
   let recWatchId   = null;
-  let trackPoints  = [];
+  let recPoints    = [];
   let waypoints    = [];
-  let trackLine    = null;
+  let recLine      = null;
   let wpMarkers    = [];
   let recStartTime = null;
+  let tracks       = [];
+  let trackLines   = [];
 
   const recBtn      = document.getElementById('recBtn');
   const wpQuickBtn  = document.getElementById('wpQuickBtn');
@@ -884,12 +891,50 @@
     return R * 2 * Math.asin(Math.sqrt(s));
   }
 
-  function updateTrackStats() {
+  function calcDist(points) {
     let d = 0;
-    for (let i = 1; i < trackPoints.length; i++) d += haversine(trackPoints[i-1], trackPoints[i]);
-    recDist.textContent = d >= 1000 ? (d/1000).toFixed(2)+' km' : Math.round(d)+' m';
-    recPtCount.textContent = trackPoints.length;
-    gpxBtn.disabled = trackPoints.length === 0 && waypoints.length === 0;
+    for (let i = 1; i < points.length; i++) d += haversine(points[i-1], points[i]);
+    return d;
+  }
+  function distStr(d) { return d >= 1000 ? (d/1000).toFixed(2)+' km' : Math.round(d)+' m'; }
+
+  function updateRecStats() {
+    const d = calcDist(recPoints);
+    recDist.textContent = distStr(d);
+    recPtCount.textContent = recPoints.length;
+  }
+
+  function updateGpxBtn() {
+    gpxBtn.disabled = tracks.length === 0 && waypoints.length === 0;
+  }
+
+  function renderTrackList() {
+    const list = document.getElementById('trackList');
+    list.innerHTML = '';
+    tracks.forEach((t, i) => {
+      const d = calcDist(t.points);
+      const dt = t.startTime;
+      const label = `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+      const item = document.createElement('div');
+      item.className = 'wp-item';
+      item.innerHTML = `
+        <span class="wp-num">${i+1}</span>
+        <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</span>
+        <span style="color:#4b4b7a;font-size:10px;white-space:nowrap">${distStr(d)}</span>
+        <button class="icon-btn del" style="margin-left:4px;padding:2px 7px;min-height:24px;font-size:11px;flex-shrink:0">✕</button>
+      `;
+      item.querySelector('button').addEventListener('click', () => deleteTrack(i));
+      list.appendChild(item);
+    });
+  }
+
+  function deleteTrack(idx) {
+    map.removeLayer(trackLines[idx]);
+    tracks.splice(idx, 1);
+    trackLines.splice(idx, 1);
+    renderTrackList();
+    updateGpxBtn();
+    saveTracks();
   }
 
   // ── トラック記録開始/停止 ──
@@ -900,6 +945,17 @@
       recBtn.textContent = '● 記録開始';
       recBtn.className = 'rec-btn start';
       recDot.classList.remove('active');
+      if (recPoints.length > 0) {
+        tracks.push({ id: Date.now(), points: [...recPoints], startTime: recStartTime, endTime: new Date() });
+        trackLines.push(recLine);
+        recLine = null;
+        recPoints = [];
+        recClearBtn.disabled = true;
+        updateRecStats();
+        renderTrackList();
+        updateGpxBtn();
+        saveTracks();
+      }
     } else {
       if (!navigator.geolocation) { alert('位置情報に対応していません'); return; }
       recStartTime = new Date();
@@ -909,28 +965,26 @@
 
       recWatchId = navigator.geolocation.watchPosition(pos => {
         const pt = { lat: pos.coords.latitude, lon: pos.coords.longitude, time: new Date() };
-        trackPoints.push(pt);
-        const latlngs = trackPoints.map(p => [p.lat, p.lon]);
-        if (!trackLine) {
-          trackLine = L.polyline(latlngs, { color: '#f97316', weight: 3, opacity: 0.85 }).addTo(map);
+        recPoints.push(pt);
+        const latlngs = recPoints.map(p => [p.lat, p.lon]);
+        if (!recLine) {
+          recLine = L.polyline(latlngs, { color: '#f97316', weight: 3, opacity: 0.85 }).addTo(map);
         } else {
-          trackLine.setLatLngs(latlngs);
+          recLine.setLatLngs(latlngs);
         }
-        updateTrackStats();
+        updateRecStats();
         recClearBtn.disabled = false;
-        saveTracks();
       }, () => {}, { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 });
     }
   });
 
-  // トラッククリア
+  // 録中トラックを破棄
   recClearBtn.addEventListener('click', () => {
-    if (!confirm('トラックをクリアしますか？')) return;
-    trackPoints = [];
-    if (trackLine) { map.removeLayer(trackLine); trackLine = null; }
-    updateTrackStats();
+    if (!confirm('録中のトラックを破棄しますか？')) return;
+    recPoints = [];
+    if (recLine) { map.removeLayer(recLine); recLine = null; }
+    updateRecStats();
     recClearBtn.disabled = true;
-    saveTracks();
   });
 
   // ── ポイント追加（トラック記録と独立） ──
@@ -967,7 +1021,7 @@
     wpMarkers.forEach((m, i) => m.setIcon(makeWpIcon(i + 1)));
     renderWpList();
     wpClearBtn.disabled = waypoints.length === 0;
-    gpxBtn.disabled = trackPoints.length === 0 && waypoints.length === 0;
+    updateGpxBtn();
     saveWaypoints();
   }
 
@@ -997,7 +1051,7 @@
     wpMarkers.forEach(m => map.removeLayer(m)); wpMarkers = [];
     wpList.innerHTML = '';
     wpClearBtn.disabled = true;
-    gpxBtn.disabled = trackPoints.length === 0;
+    updateGpxBtn();
     saveWaypoints();
   });
 
@@ -1008,11 +1062,11 @@
     waypoints.forEach(w => {
       gpx += `  <wpt lat="${w.lat}" lon="${w.lon}"><name>${esc(w.name)}</name><time>${iso(w.time)}</time></wpt>\n`;
     });
-    if (trackPoints.length) {
-      gpx += `  <trk><name>Track ${iso(recStartTime??now)}</name><trkseg>\n`;
-      trackPoints.forEach(p => { gpx += `    <trkpt lat="${p.lat}" lon="${p.lon}"><time>${iso(p.time)}</time></trkpt>\n`; });
+    tracks.forEach((t, i) => {
+      gpx += `  <trk><name>Track ${i+1} ${iso(t.startTime)}</name><trkseg>\n`;
+      t.points.forEach(p => { gpx += `    <trkpt lat="${p.lat}" lon="${p.lon}"><time>${iso(p.time)}</time></trkpt>\n`; });
       gpx += `  </trkseg></trk>\n`;
-    }
+    });
     gpx += `</gpx>`;
     const filename = `track_${now.toISOString().slice(0,10)}.gpx`;
     const blob = new Blob([gpx], { type: 'application/gpx+xml' });
@@ -1112,15 +1166,17 @@
     } catch(_) {}
 
     try {
-      const saved = JSON.parse(localStorage.getItem('geopdf-track') || 'null');
-      if (saved?.points?.length) {
-        trackPoints = saved.points.map(p => ({ lat: p.lat, lon: p.lon, time: new Date(p.time) }));
-        recStartTime = saved.startTime ? new Date(saved.startTime) : null;
-        trackLine = L.polyline(trackPoints.map(p => [p.lat, p.lon]),
+      const raw = JSON.parse(localStorage.getItem('geopdf-track') || '[]');
+      const arr = Array.isArray(raw) ? raw : (raw?.points?.length ? [raw] : []);
+      for (const t of arr) {
+        const points = t.points.map(p => ({ lat: p.lat, lon: p.lon, time: new Date(p.time) }));
+        if (!points.length) continue;
+        const line = L.polyline(points.map(p => [p.lat, p.lon]),
           { color: '#f97316', weight: 3, opacity: 0.85 }).addTo(map);
-        updateTrackStats();
-        recClearBtn.disabled = false;
+        tracks.push({ id: t.id ?? Date.now(), points, startTime: new Date(t.startTime ?? t.time ?? Date.now()), endTime: t.endTime ? new Date(t.endTime) : null });
+        trackLines.push(line);
       }
+      if (tracks.length) { renderTrackList(); updateGpxBtn(); }
     } catch(_) {}
 
     try {
