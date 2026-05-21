@@ -414,7 +414,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.11</span>
+    <span id="panelTitle">GeoPDF ビューア v1.12</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -542,20 +542,69 @@
     document.getElementById('panelCount').textContent = pdfCount + ' 件';
   }
 
+  const pdfStore = new Map();
+
+  // ── IndexedDB（PDF永続化） ───────────────────────────────────────
+  let _db = null;
+  async function openDB() {
+    if (_db) return _db;
+    _db = await new Promise((res, rej) => {
+      const r = indexedDB.open('geopdf-store', 1);
+      r.onupgradeneeded = e => e.target.result.createObjectStore('pdfs', { keyPath: 'id' });
+      r.onsuccess = e => res(e.target.result);
+      r.onerror   = e => rej(e.target.error);
+    });
+    return _db;
+  }
+  function dbPut(val) {
+    try { const tx = _db.transaction('pdfs', 'readwrite'); tx.objectStore('pdfs').put(val); } catch(_) {}
+  }
+  function dbDel(id) {
+    try { const tx = _db.transaction('pdfs', 'readwrite'); tx.objectStore('pdfs').delete(id); } catch(_) {}
+  }
+  function dbGetAll() {
+    return new Promise((res, rej) => {
+      const tx  = _db.transaction('pdfs', 'readonly');
+      const req = tx.objectStore('pdfs').getAll();
+      req.onsuccess = e => res(e.target.result);
+      req.onerror   = e => rej(e.target.error);
+    });
+  }
+
+  // ── localStorage（ポイント・トラック永続化） ──────────────────────
+  function saveWaypoints() {
+    try {
+      localStorage.setItem('geopdf-wp', JSON.stringify(
+        waypoints.map(w => ({ lat: w.lat, lon: w.lon, name: w.name, time: w.time.toISOString() }))
+      ));
+    } catch(_) {}
+  }
+  function saveTracks() {
+    try {
+      localStorage.setItem('geopdf-track', JSON.stringify({
+        points: trackPoints.map(p => ({ lat: p.lat, lon: p.lon, time: p.time.toISOString() })),
+        startTime: recStartTime?.toISOString() ?? null,
+      }));
+    } catch(_) {}
+  }
+
   // ── GeoPDF の読み込みメイン処理 ──────────────────────────────────
-  async function loadGeoPDF(file) {
-    const color = COLORS[colorIdx++ % COLORS.length];
+  async function loadGeoPDF(file, opts = {}) {
+    const { id = Date.now(), color = COLORS[colorIdx++ % COLORS.length], savedBuffer = null, savedOpacity = 0.75 } = opts;
     const card = createCard(file.name, color);
-    panel.classList.add('open');
-    panelToggleBtn.textContent = '一覧 ▼';
+    if (!savedBuffer) {
+      panel.classList.add('open');
+      panelToggleBtn.textContent = '一覧 ▼';
+    }
 
     try {
-      const buffer = await file.arrayBuffer();
+      const buffer = savedBuffer ?? await file.arrayBuffer();
 
       card.setStatus('座標を解析中...');
       const geo = extractGPTS(buffer);
       if (!geo) {
         card.setError('位置情報（GPTS）が見つかりません。\nGeoPDF 形式ではない可能性があります。');
+        if (savedBuffer) dbDel(id);
         return;
       }
 
@@ -566,12 +615,17 @@
         [geo.minLat, geo.minLon],
         [geo.maxLat, geo.maxLon]
       );
-      const overlay = L.imageOverlay(dataUrl, bounds, { opacity: 0.75 }).addTo(map);
-      map.fitBounds(bounds, { padding: [40, 40] });
+      const overlay = L.imageOverlay(dataUrl, bounds, { opacity: savedOpacity }).addTo(map);
+      if (!savedBuffer) map.fitBounds(bounds, { padding: [40, 40] });
 
       pdfCount++;
       updateCount();
-      card.setReady({ overlay, bounds, geo, jpegBytes, name: file.name });
+
+      const meta = { id, buffer, name: file.name, color, geo, opacity: savedOpacity };
+      pdfStore.set(id, meta);
+      if (!savedBuffer) dbPut(meta);
+
+      card.setReady({ overlay, bounds, geo, jpegBytes, name: file.name, dbId: id, initOpacity: savedOpacity });
 
     } catch (err) {
       card.setError('読み込みエラー: ' + err.message);
@@ -737,7 +791,8 @@
     return {
       setStatus(msg) { statusEl.textContent = msg; statusEl.className = 'pdf-status'; },
       setError(msg)  { statusEl.textContent = msg; statusEl.className = 'pdf-status error'; },
-      setReady({ overlay, bounds, geo, jpegBytes, name }) {
+      setReady({ overlay, bounds, geo, jpegBytes, name, dbId, initOpacity = 0.75 }) {
+        const pct = Math.round(initOpacity * 100);
         statusEl.remove();
         card.insertAdjacentHTML('beforeend', `
           <div class="pdf-actions">
@@ -751,8 +806,8 @@
           </div>
           <div class="pdf-opacity-row">
             <label>透過</label>
-            <input type="range" class="opacity-slider" min="0" max="100" value="75">
-            <span class="opacity-val">75%</span>
+            <input type="range" class="opacity-slider" min="0" max="100" value="${pct}">
+            <span class="opacity-val">${pct}%</span>
           </div>
         `);
 
@@ -773,6 +828,8 @@
           card.remove();
           pdfCount--;
           updateCount();
+          pdfStore.delete(dbId);
+          dbDel(dbId);
         });
 
         visBtn.addEventListener('click', () => {
@@ -791,6 +848,8 @@
           const v = parseInt(slider.value);
           overlay.setOpacity(v / 100);
           opVal.textContent = v + '%';
+          const m = pdfStore.get(dbId);
+          if (m) { m.opacity = v / 100; dbPut(m); }
         });
       }
     };
@@ -859,6 +918,7 @@
         }
         updateTrackStats();
         recClearBtn.disabled = false;
+        saveTracks();
       }, () => {}, { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 });
     }
   });
@@ -870,13 +930,15 @@
     if (trackLine) { map.removeLayer(trackLine); trackLine = null; }
     updateTrackStats();
     recClearBtn.disabled = true;
+    saveTracks();
   });
 
   // ── ポイント追加（トラック記録と独立） ──
-  function addWaypoint(lat, lon) {
+  function addWaypoint(lat, lon, savedName = null, savedTime = null) {
     const num  = waypoints.length + 1;
-    const name = prompt('ポイント名', 'ポイント ' + num) ?? ('ポイント ' + num);
-    const wp   = { lat, lon, name: name || 'ポイント ' + num, time: new Date() };
+    const name = savedName !== null ? savedName
+      : (prompt('ポイント名', 'ポイント ' + num) ?? ('ポイント ' + num)) || ('ポイント ' + num);
+    const wp   = { lat, lon, name, time: savedTime ?? new Date() };
     waypoints.push(wp);
 
     const icon = L.divIcon({
@@ -895,6 +957,7 @@
     wpList.appendChild(item);
     wpClearBtn.disabled = false;
     gpxBtn.disabled = false;
+    if (savedName === null) saveWaypoints();
   }
 
   // ツールバーの📍ボタン → 地図の中央座標にポイント追加
@@ -911,6 +974,7 @@
     wpList.innerHTML = '';
     wpClearBtn.disabled = true;
     gpxBtn.disabled = trackPoints.length === 0;
+    saveWaypoints();
   });
 
   // ── GPX出力 ──
@@ -1013,6 +1077,46 @@
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
     );
   });
+
+  // ── 起動時データ復元 ─────────────────────────────────────────────
+  async function restoreAll() {
+    await openDB();
+
+    try {
+      const saved = JSON.parse(localStorage.getItem('geopdf-wp') || '[]');
+      saved.forEach(w => addWaypoint(w.lat, w.lon, w.name, new Date(w.time)));
+    } catch(_) {}
+
+    try {
+      const saved = JSON.parse(localStorage.getItem('geopdf-track') || 'null');
+      if (saved?.points?.length) {
+        trackPoints = saved.points.map(p => ({ lat: p.lat, lon: p.lon, time: new Date(p.time) }));
+        recStartTime = saved.startTime ? new Date(saved.startTime) : null;
+        trackLine = L.polyline(trackPoints.map(p => [p.lat, p.lon]),
+          { color: '#f97316', weight: 3, opacity: 0.85 }).addTo(map);
+        updateTrackStats();
+        recClearBtn.disabled = false;
+      }
+    } catch(_) {}
+
+    try {
+      const pdfs = await dbGetAll();
+      for (const pdf of pdfs) {
+        const file = new File([pdf.buffer], pdf.name, { type: 'application/pdf' });
+        await loadGeoPDF(file, { id: pdf.id, color: pdf.color, savedBuffer: pdf.buffer, savedOpacity: pdf.opacity ?? 0.75 });
+      }
+      if (pdfs.length) {
+        colorIdx = pdfs.length;
+        const allLats = pdfs.flatMap(p => [p.geo.minLat, p.geo.maxLat]);
+        const allLons = pdfs.flatMap(p => [p.geo.minLon, p.geo.maxLon]);
+        map.fitBounds(L.latLngBounds(
+          [Math.min(...allLats), Math.min(...allLons)],
+          [Math.max(...allLats), Math.max(...allLons)]
+        ), { padding: [40, 40] });
+      }
+    } catch(_) {}
+  }
+  restoreAll();
 
   // ── PWA：Service Worker 登録 ──────────────────────────────────────
   if ('serviceWorker' in navigator) {
