@@ -1,4 +1,4 @@
-const CACHE = 'geopdf-v10';
+const CACHE = 'geopdf-v11';
 const SHARE_CACHE = 'geopdf-share';
 
 self.addEventListener('install', e => {
