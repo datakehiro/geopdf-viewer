@@ -422,7 +422,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.16</span>
+    <span id="panelTitle">GeoPDF ビューア v1.17</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -1220,6 +1220,12 @@
   // ── PWA：Service Worker 登録 ──────────────────────────────────────
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
+    let swRefreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (swRefreshing) return;
+      swRefreshing = true;
+      location.reload();
+    });
   }
 
   // ── PWA：共有シートから受け取ったPDFを処理（iOS Share Target）────
