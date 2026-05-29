@@ -431,7 +431,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.21</span>
+    <span id="panelTitle">GeoPDF ビューア v1.22</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -733,12 +733,12 @@
       return { url, jpegBytes };
     }
 
-    // JPEGが見つからない場合はPDF.jsで低解像度フォールバック
-    onProgress?.('レンダリング中（低解像度）...');
+    // 複数JPEGタイルやJPEGなしの場合はPDF.jsでレンダリング
+    onProgress?.('レンダリング中...');
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
     const page = await pdf.getPage(1);
     const vp0  = page.getViewport({ scale: 1.0 });
-    const scale = Math.min(768 / vp0.width, 768 / vp0.height);
+    const scale = Math.min(1024 / vp0.width, 1024 / vp0.height);
     const viewport = page.getViewport({ scale });
 
     const canvas = document.createElement('canvas');
@@ -752,12 +752,18 @@
     return { url, jpegBytes: jpegBytes2 };
   }
 
-  // PDFバイナリの先頭JPEGをUint8Arrayとして返す
+  // PDFバイナリの単一JPEGをUint8Arrayとして返す
+  // 複数のJPEGストリームがある場合（タイル分割PDF）はnullを返してPDF.jsにフォールバック
   function extractEmbeddedJPEGBytes(buffer) {
     const bytes = new Uint8Array(buffer);
     let start = -1;
+    let count = 0;
     for (let i = 0; i < bytes.length - 1; i++) {
-      if (bytes[i] === 0xFF && bytes[i + 1] === 0xD8) { start = i; break; }
+      if (bytes[i] === 0xFF && bytes[i + 1] === 0xD8) {
+        if (count === 0) start = i;
+        count++;
+        if (count > 1) return null; // 複数JPEG → PDF.jsで正しく合成する
+      }
     }
     if (start === -1) return null;
     let end = -1;
