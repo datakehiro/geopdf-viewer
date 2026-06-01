@@ -458,7 +458,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.30</span>
+    <span id="panelTitle">GeoPDF ビューア v1.31</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -726,7 +726,7 @@
     onProgress?.('レンダリング中...');
     const MAX_PX = 2048;
 
-    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
     const page = await pdf.getPage(1);
     const vp0  = page.getViewport({ scale: 1.0 });
     const scale = Math.min(MAX_PX / vp0.width, MAX_PX / vp0.height);
@@ -766,7 +766,7 @@
     const SAFE_PX_AREA  = 6 * 1024 * 1024;
     const RENDER_TIMEOUT = 30_000;
 
-    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+    const pdf = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
     const page = await pdf.getPage(1);
     const vp0  = page.getViewport({ scale: 1.0 });
 
