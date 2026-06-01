@@ -252,6 +252,12 @@
     /* ── Leaflet 調整 ── */
     .leaflet-control-zoom { display: none; }  /* モバイルではピンチズームを使う */
     .leaflet-control-layers { border-radius: 8px !important; }
+    /* leaflet-rotate の pan 中ズレを防ぐ：rotate pane を独立した GPU レイヤに乗せる */
+    .leaflet-rotate-pane {
+      will-change: transform;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
 
     /* ── 現在地ボタン ── */
     #locBtn.locating { opacity: 0.6; animation: loc-pulse 0.8s infinite alternate; }
@@ -451,7 +457,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.27</span>
+    <span id="panelTitle">GeoPDF ビューア v1.28</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -515,8 +521,9 @@
     bounceAtZoomLimits: false,
     minZoom: 2,
     rotate: true,
-    touchRotate: true,
+    touchRotate: false,   // 2本指回転ジェスチャを無効化（pan中のズレ防止）
     rotateControl: false,
+    preferCanvas: true,   // ベクター（トラックライン等）をcanvasで描画
   }).setView([36.412, 137.826], 14);
 
   const baseLayers = {
