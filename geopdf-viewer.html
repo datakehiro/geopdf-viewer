@@ -451,7 +451,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.24</span>
+    <span id="panelTitle">GeoPDF ビューア v1.25</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -854,7 +854,7 @@
         <div class="pdf-bar"><div class="pdf-bar-fill"></div></div>
       </div>
     `;
-    list.appendChild(card);
+    list.prepend(card);
 
     const loadingEl = card.querySelector('.pdf-loading');
     const statusEl  = card.querySelector('.pdf-status');
