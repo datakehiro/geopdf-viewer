@@ -451,7 +451,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.26</span>
+    <span id="panelTitle">GeoPDF ビューア v1.27</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -753,16 +753,21 @@
       return { url, jpegBytes };
     }
 
-    // タイル分割PDF：iOSの安全なキャンバス上限（4Mpx）を超えるサイズをスキップしつつ
-    // 高品質から段階的にフォールバック。各試行にタイムアウトを設けてフリーズを防ぐ
-    const SAFE_PX_AREA = 4 * 1024 * 1024; // ~16MB RGBA がiOSの安全な上限
-    const RENDER_TIMEOUT = 20_000;
+    // タイル分割PDF：ページ比率から6Mpx以内の最大解像度を算出し高品質レンダリング
+    // 6Mpx = RGBA 24MB。モダンiOSで安全。失敗時は段階的に縮小してフォールバック
+    const SAFE_PX_AREA  = 6 * 1024 * 1024;
+    const RENDER_TIMEOUT = 30_000;
 
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
     const page = await pdf.getPage(1);
     const vp0  = page.getViewport({ scale: 1.0 });
 
-    for (const maxPx of [2048, 1536, 1024]) {
+    // アスペクト比を維持したまま 6Mpx 以内に収まる長辺ピクセル数を算出（2% マージン）
+    const longSide  = Math.max(vp0.width, vp0.height);
+    const shortSide = Math.min(vp0.width, vp0.height);
+    const maxSafePx = Math.floor(Math.sqrt(SAFE_PX_AREA * longSide / shortSide) * 0.98);
+
+    for (const maxPx of [maxSafePx, 2048, 1536, 1024]) {
       const scale    = Math.min(maxPx / vp0.width, maxPx / vp0.height);
       const viewport = page.getViewport({ scale });
       const w = Math.round(viewport.width);
