@@ -252,11 +252,12 @@
     /* ── Leaflet 調整 ── */
     .leaflet-control-zoom { display: none; }  /* モバイルではピンチズームを使う */
     .leaflet-control-layers { border-radius: 8px !important; }
-    /* leaflet-rotate の pan 中ズレを防ぐ：rotate pane を独立した GPU レイヤに乗せる */
+    /* leaflet-rotate の pan 中ズレを防ぐ */
     .leaflet-rotate-pane {
       will-change: transform;
       backface-visibility: hidden;
       -webkit-backface-visibility: hidden;
+      transition: none !important; /* プラグインが付与する CSS transition を無効化 */
     }
 
     /* ── 現在地ボタン ── */
@@ -457,7 +458,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.29</span>
+    <span id="panelTitle">GeoPDF ビューア v1.30</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -1185,6 +1186,19 @@
   map.on('rotate', () => {
     northArrow.style.transform = `rotate(${map.getBearing()}deg)`;
   });
+
+  // leaflet-rotate@0.2.8 パンズレ修正:
+  // _rotatePanePos はパン中に更新されず古い値のまま残るため、
+  // rotate pane の位置計算がズレる。DOM の実位置 + 現在の center で毎回再計算する。
+  if (map._rotate && map._rotatePane) {
+    map._getRotatePanePos = function () {
+      if (!this._rotatePane) return new L.Point(0, 0);
+      var p = L.DomUtil.getPosition(this._rotatePane);
+      return this._bearing
+        ? p.rotateFrom(this._bearing, this._getPixelCenter())
+        : p;
+    };
+  }
 
   // ── 現在地表示 ────────────────────────────────────────────────────
   let gpsMarker = null;
