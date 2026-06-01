@@ -204,12 +204,32 @@
     }
     .opacity-val { font-size: 11px; color: #6b6b9a; width: 32px; text-align: right; }
 
+    .pdf-loading { padding: 4px 0 2px; }
     .pdf-status {
       font-size: 12px;
       color: #818cf8;
-      padding: 4px 0;
+      display: block;
     }
     .pdf-status.error { color: #f87171; white-space: pre-wrap; }
+    .pdf-bar {
+      height: 2px;
+      background: #e0e7ff;
+      border-radius: 1px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .pdf-bar-fill {
+      height: 100%;
+      width: 30%;
+      background: linear-gradient(90deg, #7c3aed, #a78bfa);
+      border-radius: 1px;
+      animation: bar-slide 1.4s ease-in-out infinite;
+    }
+    @keyframes bar-slide {
+      0%   { transform: translateX(-200%); }
+      100% { transform: translateX(460%); }
+    }
+    .pdf-status.error + .pdf-bar { display: none; }
 
     /* ── ドロップオーバーレイ ── */
     #dropOverlay {
@@ -431,7 +451,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.23</span>
+    <span id="panelTitle">GeoPDF ビューア v1.24</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -829,18 +849,22 @@
         <span class="pdf-dot" style="background:${color}"></span>
         <span class="pdf-name" title="${esc(name)}">${esc(name)}</span>
       </div>
-      <span class="pdf-status">読み込み中...</span>
+      <div class="pdf-loading">
+        <span class="pdf-status">読み込み中...</span>
+        <div class="pdf-bar"><div class="pdf-bar-fill"></div></div>
+      </div>
     `;
     list.appendChild(card);
 
-    const statusEl = card.querySelector('.pdf-status');
+    const loadingEl = card.querySelector('.pdf-loading');
+    const statusEl  = card.querySelector('.pdf-status');
 
     return {
       setStatus(msg) { statusEl.textContent = msg; statusEl.className = 'pdf-status'; },
       setError(msg)  { statusEl.textContent = msg; statusEl.className = 'pdf-status error'; },
       setReady({ overlay, bounds, geo, jpegBytes, name, dbId, initOpacity = 0.75 }) {
         const pct = Math.round(initOpacity * 100);
-        statusEl.remove();
+        loadingEl.remove();
         card.insertAdjacentHTML('beforeend', `
           <div class="pdf-actions">
             <button class="icon-btn active" data-role="vis">表示</button>
