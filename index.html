@@ -431,7 +431,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.22</span>
+    <span id="panelTitle">GeoPDF ビューア v1.23</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -733,23 +733,38 @@
       return { url, jpegBytes };
     }
 
-    // 複数JPEGタイルやJPEGなしの場合はPDF.jsでレンダリング
-    onProgress?.('レンダリング中...');
+    // タイル分割PDF：元の解像度（~300 DPI）から段階的にフォールバック
+    // 元タイルは 2480×3508px 相当 → scale ≈ 4.16。メモリ不足時は縮小して再試行
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
     const page = await pdf.getPage(1);
     const vp0  = page.getViewport({ scale: 1.0 });
-    const scale = Math.min(1024 / vp0.width, 1024 / vp0.height);
-    const viewport = page.getViewport({ scale });
+    const nativeMaxPx = Math.round(Math.max(vp0.width, vp0.height) * (300 / 72));
 
-    const canvas = document.createElement('canvas');
-    canvas.width  = Math.round(viewport.width);
-    canvas.height = Math.round(viewport.height);
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-    const url = canvas.toDataURL('image/jpeg', 0.85);
-    const jpegBytes2 = await new Promise(resolve =>
-      canvas.toBlob(b => b.arrayBuffer().then(ab => resolve(new Uint8Array(ab))), 'image/jpeg', 0.85)
-    );
-    return { url, jpegBytes: jpegBytes2 };
+    for (const maxPx of [nativeMaxPx, 2048, 1536, 1024]) {
+      const scale    = Math.min(maxPx / vp0.width, maxPx / vp0.height);
+      const viewport = page.getViewport({ scale });
+      const w = Math.round(viewport.width);
+      const h = Math.round(viewport.height);
+      onProgress?.(`レンダリング中… (${w}×${h}px)`);
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { canvas.width = 1; canvas.height = 1; continue; }
+
+      try {
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const url = canvas.toDataURL('image/jpeg', 0.88);
+        const jpegBytes2 = await new Promise(resolve =>
+          canvas.toBlob(b => b.arrayBuffer().then(ab => resolve(new Uint8Array(ab))), 'image/jpeg', 0.88)
+        );
+        return { url, jpegBytes: jpegBytes2 };
+      } catch (_) {
+        canvas.width = 1; canvas.height = 1; // メモリ解放
+      }
+    }
+    throw new Error('レンダリング失敗：メモリ不足の可能性があります');
   }
 
   // PDFバイナリの単一JPEGをUint8Arrayとして返す
