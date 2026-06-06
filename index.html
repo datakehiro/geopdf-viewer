@@ -515,7 +515,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.33</span>
+    <span id="panelTitle">GeoPDF ビューア v1.34</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -593,6 +593,10 @@
     }),
     'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 22, maxNativeZoom: 19, attribution: '© OpenStreetMap contributors',
+    }),
+    '長野県 CS立体図': L.tileLayer('https://tile.geospatial.jp/CS/VER2/{z}/{x}/{y}.png', {
+      maxZoom: 18, maxNativeZoom: 18, opacity: 0.75,
+      attribution: '長野県, G空間情報センター',
     }),
   };
   baseLayers['地理院標準'].addTo(map);
