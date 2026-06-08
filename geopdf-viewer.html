@@ -515,7 +515,7 @@
 <!-- 下部スライドパネル（モバイル）/ 左サイドバー（デスクトップ） -->
 <div id="panel">
   <div id="panelHandle" id="panelHandleInner">
-    <span id="panelTitle">GeoPDF ビューア v1.34</span>
+    <span id="panelTitle">GeoPDF ビューア v1.35</span>
     <span id="panelCount">0 件</span>
   </div>
   <div id="panelContent">
@@ -1377,7 +1377,29 @@
   let gpsWatchId = null;
   const locBtn = document.getElementById('locBtn');
 
-  locBtn.addEventListener('click', () => {
+  // スワイプ操作がボタン上を通過した際の誤クリック（ゴーストクリック）を防止
+  let locTouchStart = null;
+  let locTouchSwiped = false;
+  locBtn.addEventListener('touchstart', (e) => {
+    const t = e.touches[0];
+    locTouchStart = { x: t.clientX, y: t.clientY };
+    locTouchSwiped = false;
+  }, { passive: true });
+  locBtn.addEventListener('touchmove', (e) => {
+    if (!locTouchStart) return;
+    const t = e.touches[0];
+    if (Math.abs(t.clientX - locTouchStart.x) > 10 || Math.abs(t.clientY - locTouchStart.y) > 10) {
+      locTouchSwiped = true;
+    }
+  }, { passive: true });
+
+  locBtn.addEventListener('click', (e) => {
+    if (locTouchSwiped) {
+      locTouchSwiped = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (gpsWatchId !== null) {
       // 追跡中 → 停止
       navigator.geolocation.clearWatch(gpsWatchId);
